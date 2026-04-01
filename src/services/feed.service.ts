@@ -1,321 +1,188 @@
-import type { Comment, CreatePostPayload, FeedReaction, Post, Reply, User } from '../types'
-import { getStoredToken, getStoredUser } from './auth.service'
+import type { ApiResponse, Comment, CreatePostPayload, FeedReaction, Post, Reply } from '../types'
+import { getStoredToken } from './auth.service'
 import { http } from './http'
 
-const POSTS_KEY = 'buddy_posts'
+function readData<T>(value: T | ApiResponse<T>): T {
+  if (typeof value === 'object' && value !== null && 'data' in value) {
+    return (value as ApiResponse<T>).data
+  }
 
-function readPosts(): Post[] {
-  const raw = localStorage.getItem(POSTS_KEY)
-  if (!raw) {
+  return value as T
+}
+
+function readArray<T>(value: T[] | ApiResponse<T[]>): T[] {
+  const data = readData(value)
+  return Array.isArray(data) ? data : []
+}
+
+async function getPostLikers(postId: string, token: string) {
+  try {
+    const response = await http.request<FeedReaction[] | ApiResponse<FeedReaction[]>>(`/post/likes/${postId}`, { method: 'GET' }, token)
+    return readArray(response)
+  } catch {
     return []
   }
-
-  return JSON.parse(raw) as Post[]
 }
 
-function savePosts(posts: Post[]) {
-  localStorage.setItem(POSTS_KEY, JSON.stringify(posts))
-}
-
-function asReaction(user: User): FeedReaction {
-  return {
-    userId: user.id,
-    name: `${user.firstName} ${user.lastName}`,
+async function getCommentLikers(commentId: string, token: string) {
+  try {
+    const response = await http.request<FeedReaction[] | ApiResponse<FeedReaction[]>>(`/post/comments/likes/${commentId}`, { method: 'GET' }, token)
+    return readArray(response)
+  } catch {
+    return []
   }
 }
 
-function toggleLike(reactions: FeedReaction[], user: User): FeedReaction[] {
-  const exists = reactions.some((item) => item.userId === user.id)
-  if (exists) {
-    return reactions.filter((item) => item.userId !== user.id)
+async function getReplyLikers(replyId: string, token: string) {
+  try {
+    const response = await http.request<FeedReaction[] | ApiResponse<FeedReaction[]>>(`/post/comnt-replies/likes/${replyId}`, { method: 'GET' }, token)
+    return readArray(response)
+  } catch {
+    return []
   }
-
-  return [asReaction(user), ...reactions]
 }
 
-function ensureSeedData() {
-  const posts = readPosts()
-  if (posts.length > 0) {
-    return
-  }
+async function getReplies(commentId: string, token: string) {
+  const response = await http.request<Reply[] | ApiResponse<Reply[]>>(`/post/comments/replies/${commentId}`, { method: 'GET' }, token)
+  const replies = readArray(response)
 
-  const currentUser = getStoredUser()
-  if (!currentUser) {
-    return
-  }
+  const repliesWithLikers = await Promise.all(
+    replies.map(async (reply) => ({
+      ...reply,
+      likedBy: await getReplyLikers(reply._id, token),
+    })),
+  )
 
-  const seeded: Post[] = [
-    {
-      id: crypto.randomUUID(),
-      author: currentUser,
-      text: 'Welcome to Buddy Script! This is your first post.',
-      visibility: 'PUBLIC',
-      likedBy: [],
-      comments: [],
-      createdAt: new Date().toISOString(),
-    },
-  ]
-
-  savePosts(seeded)
+  return repliesWithLikers
 }
 
-function visiblePosts(posts: Post[], currentUserId: string): Post[] {
-  return posts
-    .filter((item) => item.visibility === 'PUBLIC' || item.author.id === currentUserId)
-    .sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
+async function getComments(postId: string, token: string) {
+  const response = await http.request<Comment[] | ApiResponse<Comment[]>>(`/post/comments/${postId}`, { method: 'GET' }, token)
+  const comments = readArray(response)
+
+  const commentsWithChildren = await Promise.all(
+    comments.map(async (comment) => ({
+      ...comment,
+      likedBy: await getCommentLikers(comment._id, token),
+      replies: await getReplies(comment._id, token),
+    })),
+  )
+
+  return commentsWithChildren
 }
 
 export async function getFeedPosts(): Promise<Post[]> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
-    return []
-  }
-
-  try {
-    return await http.request<Post[]>('/feed/posts', { method: 'GET' }, token ?? undefined)
-  } catch {
-    ensureSeedData()
-    return visiblePosts(readPosts(), currentUser.id)
-  }
-}
-
-export async function createPost(payload: CreatePostPayload): Promise<Post> {
-  const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    const formData = new FormData()
-    formData.append('text', payload.text)
-    formData.append('visibility', payload.visibility)
-    if (payload.image) {
-      formData.append('image', payload.image)
-    }
+  const response = await http.request<Post[] | ApiResponse<Post[]>>('/post', { method: 'GET' }, token)
+  const posts = readArray(response)
 
-    return await http.request<Post>(
-      '/feed/posts',
-      {
-        method: 'POST',
-        body: formData,
-      },
-      token ?? undefined,
-    )
-  } catch {
-    const imageUrl = payload.image ? URL.createObjectURL(payload.image) : undefined
+  const normalizedPosts = await Promise.all(
+    posts.map(async (post) => ({
+      ...post,
+      likedBy: await getPostLikers(post._id, token),
+      comments: await getComments(post._id, token),
+    })),
+  )
 
-    const post: Post = {
-      id: crypto.randomUUID(),
-      author: currentUser,
-      text: payload.text,
-      visibility: payload.visibility,
-      imageUrl,
-      likedBy: [],
-      comments: [],
-      createdAt: new Date().toISOString(),
-    }
-
-    const posts = [post, ...readPosts()]
-    savePosts(posts)
-
-    return post
-  }
+  return normalizedPosts.sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
 }
 
-export async function togglePostLike(postId: string): Promise<Post[]> {
+export async function createPost(payload: CreatePostPayload): Promise<void> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    return await http.request<Post[]>(`/feed/posts/${postId}/likes/toggle`, { method: 'PATCH' }, token ?? undefined)
-  } catch {
-    const updated = readPosts().map((post) => {
-      if (post.id !== postId) {
-        return post
-      }
-
-      return {
-        ...post,
-        likedBy: toggleLike(post.likedBy, currentUser),
-      }
-    })
-
-    savePosts(updated)
-    return visiblePosts(updated, currentUser.id)
+  const formData = new FormData()
+  formData.append('text', payload.text)
+  formData.append('visibility', payload.visibility)
+  if (payload.image) {
+    formData.append('image', payload.image)
   }
+
+  await http.request('/post', { method: 'POST', body: formData }, token)
 }
 
-export async function addComment(postId: string, text: string): Promise<Post[]> {
+export async function togglePostLike(postId: string, isCurrentlyLiked: boolean): Promise<void> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    return await http.request<Post[]>(
-      `/feed/posts/${postId}/comments`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ text }),
-      },
-      token ?? undefined,
-    )
-  } catch {
-    const comment: Comment = {
-      id: crypto.randomUUID(),
-      postId,
-      text,
-      user: currentUser,
-      likedBy: [],
-      createdAt: new Date().toISOString(),
-      replies: [],
-    }
-
-    const updated = readPosts().map((post) =>
-      post.id === postId ? { ...post, comments: [...post.comments, comment] } : post,
-    )
-
-    savePosts(updated)
-    return visiblePosts(updated, currentUser.id)
-  }
+  await http.request(
+    `/post/likes/${postId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
+    },
+    token,
+  )
 }
 
-export async function toggleCommentLike(postId: string, commentId: string): Promise<Post[]> {
+export async function addComment(postId: string, content: string): Promise<void> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    return await http.request<Post[]>(
-      `/feed/posts/${postId}/comments/${commentId}/likes/toggle`,
-      { method: 'PATCH' },
-      token ?? undefined,
-    )
-  } catch {
-    const updated = readPosts().map((post) => {
-      if (post.id !== postId) {
-        return post
-      }
-
-      return {
-        ...post,
-        comments: post.comments.map((comment) =>
-          comment.id === commentId
-            ? {
-                ...comment,
-                likedBy: toggleLike(comment.likedBy, currentUser),
-              }
-            : comment,
-        ),
-      }
-    })
-
-    savePosts(updated)
-    return visiblePosts(updated, currentUser.id)
-  }
+  await http.request(
+    `/post/comments/${postId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+    token,
+  )
 }
 
-export async function addReply(postId: string, commentId: string, text: string): Promise<Post[]> {
+export async function toggleCommentLike(commentId: string, isCurrentlyLiked: boolean): Promise<void> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    return await http.request<Post[]>(
-      `/feed/posts/${postId}/comments/${commentId}/replies`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ text }),
-      },
-      token ?? undefined,
-    )
-  } catch {
-    const reply: Reply = {
-      id: crypto.randomUUID(),
-      commentId,
-      text,
-      user: currentUser,
-      likedBy: [],
-      createdAt: new Date().toISOString(),
-    }
-
-    const updated = readPosts().map((post) => {
-      if (post.id !== postId) {
-        return post
-      }
-
-      return {
-        ...post,
-        comments: post.comments.map((comment) =>
-          comment.id === commentId ? { ...comment, replies: [...comment.replies, reply] } : comment,
-        ),
-      }
-    })
-
-    savePosts(updated)
-    return visiblePosts(updated, currentUser.id)
-  }
+  await http.request(
+    `/post/comments/likes/${commentId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
+    },
+    token,
+  )
 }
 
-export async function toggleReplyLike(postId: string, commentId: string, replyId: string): Promise<Post[]> {
+export async function addReply(commentId: string, content: string): Promise<void> {
   const token = getStoredToken()
-  const currentUser = getStoredUser()
-
-  if (!currentUser) {
+  if (!token) {
     throw new Error('Unauthorized')
   }
 
-  try {
-    return await http.request<Post[]>(
-      `/feed/posts/${postId}/comments/${commentId}/replies/${replyId}/likes/toggle`,
-      { method: 'PATCH' },
-      token ?? undefined,
-    )
-  } catch {
-    const updated = readPosts().map((post) => {
-      if (post.id !== postId) {
-        return post
-      }
+  await http.request(
+    `/post/comments/replies/${commentId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+    token,
+  )
+}
 
-      return {
-        ...post,
-        comments: post.comments.map((comment) => {
-          if (comment.id !== commentId) {
-            return comment
-          }
-
-          return {
-            ...comment,
-            replies: comment.replies.map((reply) =>
-              reply.id === replyId
-                ? {
-                    ...reply,
-                    likedBy: toggleLike(reply.likedBy, currentUser),
-                  }
-                : reply,
-            ),
-          }
-        }),
-      }
-    })
-
-    savePosts(updated)
-    return visiblePosts(updated, currentUser.id)
+export async function toggleReplyLike(replyId: string, isCurrentlyLiked: boolean): Promise<void> {
+  const token = getStoredToken()
+  if (!token) {
+    throw new Error('Unauthorized')
   }
+
+  await http.request(
+    `/post/comnt-replies/likes/${replyId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
+    },
+    token,
+  )
 }

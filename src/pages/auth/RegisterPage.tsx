@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 
 export function RegisterPage() {
-  const { registerUser } = useAuth()
+  const { registerUser, verifyUserEmail } = useAuth()
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -14,11 +14,15 @@ export function RegisterPage() {
     confirmPassword: '',
   })
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [needsVerification, setNeedsVerification] = useState(false)
+  const [oneTimeCode, setOneTimeCode] = useState('')
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setSuccess('')
 
     if (form.password !== form.confirmPassword) {
       setError('Password and repeat password do not match')
@@ -34,9 +38,35 @@ export function RegisterPage() {
         email: form.email,
         password: form.password,
       })
-      navigate('/feed')
+      setNeedsVerification(true)
+      setSuccess('Registration successful. Please enter the verification code sent to your email.')
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : 'Registration failed'
+      setError(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerify = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+
+    if (!oneTimeCode.trim()) {
+      setError('Verification code is required')
+      return
+    }
+
+    setLoading(true)
+    try {
+      await verifyUserEmail({
+        email: form.email,
+        oneTimeCode: oneTimeCode.trim(),
+      })
+      navigate(`/login?verified=1&email=${encodeURIComponent(form.email)}`)
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Verification failed'
       setError(message)
     } finally {
       setLoading(false)
@@ -74,7 +104,7 @@ export function RegisterPage() {
                 </div>
                 <p className="_social_registration_content_para _mar_b8">Get Started Now</p>
                 <h4 className="_social_registration_content_title _titl4 _mar_b50">Registration</h4>
-                <form className="_social_registration_form" onSubmit={handleSubmit}>
+                <form className="_social_registration_form" onSubmit={needsVerification ? handleVerify : handleSubmit}>
                   <div className="row">
                     <div className="col-xl-6 col-lg-6 col-md-12 col-sm-12">
                       <div className="_social_registration_form_input _mar_b14">
@@ -112,39 +142,57 @@ export function RegisterPage() {
                         />
                       </div>
                     </div>
-                    <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
-                      <div className="_social_registration_form_input _mar_b14">
-                        <label className="_social_registration_label _mar_b8">Password</label>
-                        <input
-                          type="password"
-                          className="form-control _social_registration_input"
-                          value={form.password}
-                          onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                          required
-                        />
+                    {!needsVerification ? (
+                      <>
+                        <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
+                          <div className="_social_registration_form_input _mar_b14">
+                            <label className="_social_registration_label _mar_b8">Password</label>
+                            <input
+                              type="password"
+                              className="form-control _social_registration_input"
+                              value={form.password}
+                              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
+                          <div className="_social_registration_form_input _mar_b14">
+                            <label className="_social_registration_label _mar_b8">Repeat Password</label>
+                            <input
+                              type="password"
+                              className="form-control _social_registration_input"
+                              value={form.confirmPassword}
+                              onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                              required
+                            />
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
+                        <div className="_social_registration_form_input _mar_b14">
+                          <label className="_social_registration_label _mar_b8">Verification Code</label>
+                          <input
+                            type="text"
+                            className="form-control _social_registration_input"
+                            value={oneTimeCode}
+                            onChange={(event) => setOneTimeCode(event.target.value)}
+                            required
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
-                      <div className="_social_registration_form_input _mar_b14">
-                        <label className="_social_registration_label _mar_b8">Repeat Password</label>
-                        <input
-                          type="password"
-                          className="form-control _social_registration_input"
-                          value={form.confirmPassword}
-                          onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-                          required
-                        />
-                      </div>
-                    </div>
+                    )}
                   </div>
 
+                  {success ? <p className="_social_registration_bottom_txt_para _mar_b14">{success}</p> : null}
                   {error ? <p className="_social_registration_bottom_txt_para _mar_b14">{error}</p> : null}
 
                   <div className="row">
                     <div className="col-lg-12 col-md-12 col-xl-12 col-sm-12">
                       <div className="_social_registration_form_btn _mar_t40 _mar_b60">
                         <button type="submit" className="_social_registration_form_btn_link _btn1" disabled={loading}>
-                          {loading ? 'Creating...' : 'Create Account'}
+                          {loading ? 'Please wait...' : needsVerification ? 'Verify Email' : 'Create Account'}
                         </button>
                       </div>
                     </div>

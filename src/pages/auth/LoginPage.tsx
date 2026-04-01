@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -7,12 +7,16 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [form, setForm] = useState({ email: '', password: '' })
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const prefilledEmail = searchParams.get('email') ?? ''
+
+  const [form, setForm] = useState({ email: prefilledEmail, password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const searchParams = new URLSearchParams(location.search)
   const authMessage =
     searchParams.get('reason') === 'auth' ? 'Please login first to view the feed.' : ''
+  const verifiedMessage =
+    searchParams.get('verified') === '1' ? 'Email verified successfully. Please login.' : ''
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -90,6 +94,7 @@ export function LoginPage() {
                   </div>
 
                   {authMessage ? <p className="_social_login_bottom_txt_para _mar_b14">{authMessage}</p> : null}
+                  {verifiedMessage ? <p className="_social_login_bottom_txt_para _mar_b14">{verifiedMessage}</p> : null}
                   {error ? <p className="_social_login_bottom_txt_para _mar_b14">{error}</p> : null}
 
                   <div className="row">

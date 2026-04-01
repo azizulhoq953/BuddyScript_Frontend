@@ -1,11 +1,12 @@
 # Buddy Script Frontend (React + TypeScript)
 
-Frontend implementation of the Appifylab selection task using React + TypeScript, with a clean structure and API-ready service layer for easy Node.js/Express + MongoDB integration.
+Frontend implementation of the Appifylab selection task using React + TypeScript with integrated backend API services.
 
 ## Features Included
 
 - Authentication pages: Login and Registration using your provided design.
 - Protected route for Feed page.
+
 - Feed supports:
 	- Create post (text + image).
 	- Public / Private visibility.
@@ -13,8 +14,6 @@ Frontend implementation of the Appifylab selection task using React + TypeScript
 	- Like/Unlike for posts, comments, replies.
 	- Add comments and replies.
 	- Display who liked each post/comment/reply.
-
-If backend is not available, a localStorage fallback keeps the app runnable for UI testing.
 
 ## Tech Stack
 
@@ -66,16 +65,17 @@ npm run build
 Set API base URL in `.env`:
 
 ```bash
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=http://192.168.2.38:3300/api/v1
 ```
 
 Current frontend expects these endpoints:
 
 ### Auth
 
-- `POST /auth/register`
-	- body: `{ firstName, lastName, email, password }`
-	- response: `{ token, user }`
+- `POST /user`
+	- body: `{ firstName, lastName, email, role: "GENERAL", password }`
+- `POST /auth/verify-email`
+	- body: `{ email, oneTimeCode }`
 - `POST /auth/login`
 	- body: `{ email, password }`
 	- response: `{ token, user }`
@@ -83,25 +83,33 @@ Current frontend expects these endpoints:
 	- header: `Authorization: Bearer <token>`
 	- response: `user`
 
-### Feed
+### Feed (`/post`)
 
-- `GET /feed/posts`
-	- response: `Post[]`
-- `POST /feed/posts`
+
+- `GET /post`
+	- response: `Post[]` (or wrapped response with `data`)
+- `POST /post`
 	- multipart: `text`, `visibility`, `image?`
-	- response: `Post`
-- `PATCH /feed/posts/:postId/likes/toggle`
-	- response: `Post[]`
-- `POST /feed/posts/:postId/comments`
-	- body: `{ text }`
-	- response: `Post[]`
-- `PATCH /feed/posts/:postId/comments/:commentId/likes/toggle`
-	- response: `Post[]`
-- `POST /feed/posts/:postId/comments/:commentId/replies`
-	- body: `{ text }`
-	- response: `Post[]`
-- `PATCH /feed/posts/:postId/comments/:commentId/replies/:replyId/likes/toggle`
-	- response: `Post[]`
+- `PATCH /post/likes/:postId`
+	- body: `{ isLiked }`
+- `GET /post/likes/:postId`
+	- response: liker user list
+- `POST /post/comments/:postId`
+	- body: `{ content }`
+- `GET /post/comments/:postId`
+	- response: comment list
+- `PATCH /post/comments/likes/:commentId`
+	- body: `{ isLiked }`
+- `GET /post/comments/likes/:commentId`
+	- response: comment liker user list
+- `POST /post/comments/replies/:commentId`
+	- body: `{ content }`
+- `GET /post/comments/replies/:commentId`
+	- response: reply list
+- `PATCH /post/comnt-replies/likes/:replyId`
+	- body: `{ isLiked }`
+- `GET /post/comnt-replies/likes/:replyId`
+	- response: reply liker user list
 
 ## Notes
 

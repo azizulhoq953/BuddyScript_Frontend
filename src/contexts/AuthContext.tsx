@@ -1,21 +1,30 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { LoginPayload, RegisterPayload, User } from '../types'
-import { clearSession, getStoredToken, getStoredUser, login, me, register } from '../services/auth.service'
+import type { LoginPayload, RegisterPayload, VerifyEmailPayload } from '../types'
+import {
+  clearSession,
+  getStoredToken,
+  getStoredUser,
+  login,
+  me,
+  register,
+  verifyEmail,
+} from '../services/auth.service'
 
 interface AuthContextValue {
-  user: User | null
+  user: ReturnType<typeof getStoredUser>
   token: string | null
   loading: boolean
   loginUser: (payload: LoginPayload) => Promise<void>
   registerUser: (payload: RegisterPayload) => Promise<void>
+  verifyUserEmail: (payload: VerifyEmailPayload) => Promise<void>
   logout: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(getStoredUser())
+  const [user, setUser] = useState(getStoredUser())
   const [token, setToken] = useState<string | null>(getStoredToken())
   const [loading, setLoading] = useState(true)
 
@@ -49,9 +58,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(response.token)
       },
       registerUser: async (payload) => {
-        const response = await register(payload)
-        setUser(response.user)
-        setToken(response.token)
+        await register(payload)
+      },
+      verifyUserEmail: async (payload) => {
+        await verifyEmail(payload)
       },
       logout: () => {
         clearSession()
