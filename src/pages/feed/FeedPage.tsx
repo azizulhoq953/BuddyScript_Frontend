@@ -24,6 +24,10 @@ function toNames(reactions: FeedReaction[] | undefined) {
   return reactions.map((item) => `${item.firstName} ${item.lastName}`).join(', ')
 }
 
+function getPostImage(post: Post) {
+  return post.image ?? post.images?.[0]
+}
+
 export function FeedPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -92,16 +96,6 @@ export function FeedPage() {
 
   if (loading) {
     return <div className="_padd_t24 _text_center">Loading feed...</div>
-  }
-
-  if (error) {
-    return <div className="_padd_t24 _text_center alert alert-danger" role="alert">
-      <strong>Error:</strong> {error}
-      <br />
-      <button className="btn btn-sm btn-primary mt-3" onClick={() => window.location.reload()}>
-        Retry
-      </button>
-    </div>
   }
 
   return (
@@ -288,9 +282,9 @@ export function FeedPage() {
                             </div>
                           </div>
                           <h4 className="_feed_inner_timeline_post_title">{post.text}</h4>
-                          {post.image ? (
+                          {getPostImage(post) ? (
                             <div className="_feed_inner_timeline_image">
-                              <img src={post.image} alt="post" className="_time_img" />
+                              <img src={getPostImage(post)} alt="post" className="_time_img" />
                             </div>
                           ) : null}
                         </div>

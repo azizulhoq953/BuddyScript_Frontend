@@ -96,6 +96,7 @@ export interface Post {
   author: User
   text: string
   image?: string
+  images?: string[]
   visibility: Visibility
   likeCount: number
   commentCount: number

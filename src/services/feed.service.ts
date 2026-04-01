@@ -2,6 +2,8 @@ import type { ApiResponse, Comment, CreatePostPayload, FeedReaction, Post, Reply
 import { getStoredToken } from './auth.service'
 import { http } from './http'
 
+const IMAGE_BASE_URL = (import.meta.env.VITE_IMAGE_BASE_URL ?? 'http://192.168.2.38:3300').replace(/\/$/, '')
+
 function readData<T>(value: T | ApiResponse<T>): T {
   if (typeof value === 'object' && value !== null && 'data' in value) {
     return (value as ApiResponse<T>).data
@@ -13,6 +15,41 @@ function readData<T>(value: T | ApiResponse<T>): T {
 function readArray<T>(value: T[] | ApiResponse<T[]>): T[] {
   const data = readData(value)
   return Array.isArray(data) ? data : []
+}
+
+function toAbsoluteImageUrl(pathOrUrl?: string | null) {
+  if (!pathOrUrl) {
+    return undefined
+  }
+
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    return pathOrUrl
+  }
+
+  return `${IMAGE_BASE_URL}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`
+}
+
+async function patchLike(path: string, isCurrentlyLiked: boolean, token: string) {
+  try {
+    await http.request(
+      path,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
+      },
+      token,
+    )
+    return
+  } catch {
+    await http.request(
+      path,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isLiked: isCurrentlyLiked }),
+      },
+      token,
+    )
+  }
 }
 
 async function getPostLikers(postId: string, token: string) {
@@ -81,11 +118,16 @@ export async function getFeedPosts(): Promise<Post[]> {
   const posts = readArray(response)
 
   const normalizedPosts = await Promise.all(
-    posts.map(async (post) => ({
-      ...post,
-      likedBy: await getPostLikers(post._id, token),
-      comments: await getComments(post._id, token),
-    })),
+    posts.map(async (post) => {
+      const firstImage = post.image ?? post.images?.[0]
+      return {
+        ...post,
+        image: toAbsoluteImageUrl(firstImage),
+        images: (post.images ?? []).map((imagePath) => toAbsoluteImageUrl(imagePath) ?? imagePath),
+        likedBy: await getPostLikers(post._id, token),
+        comments: await getComments(post._id, token),
+      }
+    }),
   )
 
   return normalizedPosts.sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
@@ -113,14 +155,7 @@ export async function togglePostLike(postId: string, isCurrentlyLiked: boolean):
     throw new Error('Unauthorized')
   }
 
-  await http.request(
-    `/post/likes/${postId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
-    },
-    token,
-  )
+  await patchLike(`/post/likes/${postId}`, isCurrentlyLiked, token)
 }
 
 export async function addComment(postId: string, content: string): Promise<void> {
@@ -145,14 +180,7 @@ export async function toggleCommentLike(commentId: string, isCurrentlyLiked: boo
     throw new Error('Unauthorized')
   }
 
-  await http.request(
-    `/post/comments/likes/${commentId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
-    },
-    token,
-  )
+  await patchLike(`/post/comments/likes/${commentId}`, isCurrentlyLiked, token)
 }
 
 export async function addReply(commentId: string, content: string): Promise<void> {
@@ -177,12 +205,5 @@ export async function toggleReplyLike(replyId: string, isCurrentlyLiked: boolean
     throw new Error('Unauthorized')
   }
 
-  await http.request(
-    `/post/comnt-replies/likes/${replyId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
-    },
-    token,
-  )
+  await patchLike(`/post/comnt-replies/likes/${replyId}`, isCurrentlyLiked, token)
 }
