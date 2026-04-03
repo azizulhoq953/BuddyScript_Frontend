@@ -2,7 +2,17 @@ import type { ApiResponse, Comment, CreatePostPayload, FeedReaction, Post, Reply
 import { getStoredToken } from './auth.service'
 import { http } from './http'
 
-const IMAGE_BASE_URL = (import.meta.env.VITE_IMAGE_BASE_URL ?? 'http://192.168.2.38:3300').replace(/\/$/, '')
+function deriveImageBaseUrl() {
+  const explicitImageBaseUrl = import.meta.env.VITE_IMAGE_BASE_URL?.trim()
+  if (explicitImageBaseUrl) {
+    return explicitImageBaseUrl.replace(/\/$/, '')
+  }
+
+  const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? http.API_BASE_URL).replace(/\/$/, '')
+  return apiBaseUrl.replace(/\/api\/v1$/, '')
+}
+
+const IMAGE_BASE_URL = deriveImageBaseUrl()
 
 function readData<T>(value: T | ApiResponse<T>): T {
   if (typeof value === 'object' && value !== null && 'data' in value) {

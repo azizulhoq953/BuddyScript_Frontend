@@ -20,8 +20,6 @@ const REACTION_OPTIONS = [
 ] as const
 
 type ReactionKey = (typeof REACTION_OPTIONS)[number]['key']
-const INITIAL_VISIBLE_COMMENTS = 1
-const INITIAL_VISIBLE_REPLIES = 1
 
 function formatRelativeTime(value: string) {
   const diffInSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))
@@ -130,7 +128,6 @@ export function FeedPage() {
   const [commentReactionMap, setCommentReactionMap] = useState<Record<string, ReactionKey>>({})
   const [replyReactionMap, setReplyReactionMap] = useState<Record<string, ReactionKey>>({})
   const [expandedCommentsByPost, setExpandedCommentsByPost] = useState<Record<string, boolean>>({})
-  const [expandedRepliesByComment, setExpandedRepliesByComment] = useState<Record<string, boolean>>({})
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -370,9 +367,8 @@ export function FeedPage() {
                       const likeCount = getPostLikeCount(post)
                       const commentCount = getPostCommentCount(post)
                       const allComments = post.comments ?? []
-                      const showAllComments = expandedCommentsByPost[post._id] ?? false
-                      const visibleComments = showAllComments ? allComments : allComments.slice(0, INITIAL_VISIBLE_COMMENTS)
-                      const hiddenCommentsCount = Math.max(0, allComments.length - visibleComments.length)
+                      const showCommentsSection = expandedCommentsByPost[post._id] ?? false
+                      const visibleComments = showCommentsSection ? allComments : []
                       const likeNames = (post.likedBy ?? []).map((item) => `${item.firstName} ${item.lastName}`)
                       const commentNames = getCommenterNames(post)
                       const topLikers = (post.likedBy ?? []).slice(0, 4)
@@ -439,7 +435,17 @@ export function FeedPage() {
 
                           <div className="_feed_inner_timeline_total_reacts_txt">
                             <div className="_feed_hover_detail_wrap">
-                              <p className="_feed_inner_timeline_total_reacts_para1">
+                              <p
+                                className="_feed_inner_timeline_total_reacts_para1"
+                                role="button"
+                                onClick={() =>
+                                  setExpandedCommentsByPost((prev) => ({
+                                    ...prev,
+                                    [post._id]: !showCommentsSection,
+                                  }))
+                                }
+                                style={{ cursor: 'pointer' }}
+                              >
                                 <span>{commentCount}</span> Comments
                               </p>
                               <HoverDetailsCard title="Comments" total={commentCount} names={commentNames} />
@@ -506,6 +512,10 @@ export function FeedPage() {
                               type="button"
                               className="_feed_inner_timeline_reaction_emoji _feed_reaction"
                               onClick={() => {
+                                setExpandedCommentsByPost((prev) => ({
+                                  ...prev,
+                                  [post._id]: true,
+                                }))
                                 const input = document.getElementById(`comment-input-${post._id}`) as HTMLTextAreaElement | null
                                 input?.focus()
                               }}
@@ -521,78 +531,61 @@ export function FeedPage() {
                         </div>
 
                         <div className="_feed_inner_timeline_cooment_area _padd_r24 _padd_l24">
-                          <div className="_feed_inner_comment_box">
-                            <form
-                              className="_feed_inner_comment_box_form"
-                              onSubmit={async (event) => {
-                                event.preventDefault()
-                                const value = commentDraft[post._id]?.trim()
-                                if (!value) {
-                                  return
-                                }
-
-                                try {
-                                  await addComment(post._id, value)
-                                  await refreshPosts()
-                                  setCommentDraft((prev) => ({ ...prev, [post._id]: '' }))
-                                } catch (unknownError) {
-                                  const message = unknownError instanceof Error ? unknownError.message : 'Unable to comment'
-                                  setError(message)
-                                }
-                              }}
-                            >
-                              <div className="_feed_inner_comment_box_content">
-                                <img src="/assets/images/txt_img.png" alt="profile" className="_comment_img" />
-                                <div className="_feed_inner_comment_box_content_txt w-100">
-                                  <textarea
-                                    id={`comment-input-${post._id}`}
-                                    className="form-control _comment_textarea"
-                                    placeholder="Write a comment"
-                                    value={commentDraft[post._id] ?? ''}
-                                    onChange={(event) =>
-                                      setCommentDraft((prev) => ({ ...prev, [post._id]: event.target.value }))
+                          {showCommentsSection ? (
+                            <>
+                              <div className="_feed_inner_comment_box">
+                                <form
+                                  className="_feed_inner_comment_box_form"
+                                  onSubmit={async (event) => {
+                                    event.preventDefault()
+                                    const value = commentDraft[post._id]?.trim()
+                                    if (!value) {
+                                      return
                                     }
-                                  />
-                                </div>
-                              </div>
-                              <button className="_btn1" type="submit">
-                                Comment
-                              </button>
-                            </form>
-                          </div>
 
-                          <div className="_mar_t16">
-                            {allComments.length > INITIAL_VISIBLE_COMMENTS && !showAllComments ? (
-                              <div className="_previous_comment">
-                                <button
-                                  type="button"
-                                  className="_previous_comment_txt"
-                                  onClick={() =>
-                                    setExpandedCommentsByPost((prev) => ({
-                                      ...prev,
-                                      [post._id]: true,
-                                    }))
-                                  }
+                                    try {
+                                      await addComment(post._id, value)
+                                      await refreshPosts()
+                                      setCommentDraft((prev) => ({ ...prev, [post._id]: '' }))
+                                    } catch (unknownError) {
+                                      const message = unknownError instanceof Error ? unknownError.message : 'Unable to comment'
+                                      setError(message)
+                                    }
+                                  }}
                                 >
-                                  View {hiddenCommentsCount} more comments
-                                </button>
+                                  <div className="_feed_inner_comment_box_content">
+                                    <img src="/assets/images/txt_img.png" alt="profile" className="_comment_img" />
+                                    <div className="_feed_inner_comment_box_content_txt w-100">
+                                      <textarea
+                                        id={`comment-input-${post._id}`}
+                                        className="form-control _comment_textarea"
+                                        placeholder="Write a comment"
+                                        value={commentDraft[post._id] ?? ''}
+                                        onChange={(event) =>
+                                          setCommentDraft((prev) => ({ ...prev, [post._id]: event.target.value }))
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <button className="_btn1" type="submit">
+                                    Comment
+                                  </button>
+                                </form>
                               </div>
-                            ) : null}
 
-                            {visibleComments.map((comment) => {
+                              <div className="_mar_t16">
+                                {visibleComments.map((comment) => {
                               const replyKey = `${post._id}:${comment._id}`
                               const selectedCommentReactionKey = commentReactionMap[comment._id] ?? 'LIKE'
                               const selectedCommentReaction = getReactionOption(selectedCommentReactionKey)
-                              const commentReactionLabel = comment.isLiked ? selectedCommentReaction.label : 'Like'
+                              const commentReactionLabel = comment.isLiked ? selectedCommentReaction.label : 'React'
                               const commentReactionColor = comment.isLiked ? selectedCommentReaction.color : undefined
                               const commentLikeCount = comment.likedBy?.length ?? comment.likeCount ?? 0
                               const commentLikeNames = (comment.likedBy ?? []).map(
                                 (reaction) => `${reaction.firstName} ${reaction.lastName}`,
                               )
                               const allReplies = comment.replies ?? []
-                              const showAllReplies = expandedRepliesByComment[comment._id] ?? false
-                              const visibleReplies = showAllReplies ? allReplies : allReplies.slice(0, INITIAL_VISIBLE_REPLIES)
-                              const hiddenRepliesCount = Math.max(0, allReplies.length - visibleReplies.length)
+                              const visibleReplies = allReplies
 
                               return (
                                 <div key={comment._id} className="_comment_main _mar_b16">
@@ -638,13 +631,18 @@ export function FeedPage() {
                                         <li>
                                           <div className="_mini_reaction_wrap">
                                             <button
-                                              className="_btn3 _mini_reaction_btn _comment_action_btn"
+                                              className={`_btn3 _mini_reaction_btn _comment_action_btn ${comment.isLiked ? '_feed_reaction_active' : ''}`}
                                               type="button"
                                               onClick={async () => {
                                                 try {
                                                   await toggleCommentLike(comment._id, comment.isLiked)
                                                   if (comment.isLiked) {
                                                     setCommentReactionMap((prev) => ({ ...prev, [comment._id]: 'LIKE' }))
+                                                  } else {
+                                                    setCommentReactionMap((prev) => ({
+                                                      ...prev,
+                                                      [comment._id]: prev[comment._id] ?? 'LIKE',
+                                                    }))
                                                   }
                                                   await refreshPosts()
                                                 } catch (unknownError) {
@@ -705,7 +703,7 @@ export function FeedPage() {
                                       {visibleReplies.map((reply) => {
                                         const selectedReplyReactionKey = replyReactionMap[reply._id] ?? 'LIKE'
                                         const selectedReplyReaction = getReactionOption(selectedReplyReactionKey)
-                                        const replyReactionLabel = reply.isLiked ? selectedReplyReaction.label : 'Like'
+                                        const replyReactionLabel = reply.isLiked ? selectedReplyReaction.label : 'React'
                                         const replyReactionColor = reply.isLiked ? selectedReplyReaction.color : undefined
                                         const replyLikeCount = reply.likedBy?.length ?? reply.likeCount ?? 0
                                         const replyLikeNames = (reply.likedBy ?? []).map(
@@ -756,13 +754,18 @@ export function FeedPage() {
                                                   <li>
                                                     <div className="_mini_reaction_wrap">
                                                       <button
-                                                        className="_btn3 _mini_reaction_btn _comment_action_btn"
+                                                        className={`_btn3 _mini_reaction_btn _comment_action_btn ${reply.isLiked ? '_feed_reaction_active' : ''}`}
                                                         type="button"
                                                         onClick={async () => {
                                                           try {
                                                             await toggleReplyLike(reply._id, reply.isLiked)
                                                             if (reply.isLiked) {
                                                               setReplyReactionMap((prev) => ({ ...prev, [reply._id]: 'LIKE' }))
+                                                            } else {
+                                                              setReplyReactionMap((prev) => ({
+                                                                ...prev,
+                                                                [reply._id]: prev[reply._id] ?? 'LIKE',
+                                                              }))
                                                             }
                                                             await refreshPosts()
                                                           } catch (unknownError) {
@@ -816,23 +819,6 @@ export function FeedPage() {
                                           </div>
                                         )
                                       })}
-
-                                      {hiddenRepliesCount > 0 && !showAllReplies ? (
-                                        <div className="_previous_comment _mar_l24">
-                                          <button
-                                            type="button"
-                                            className="_previous_comment_txt"
-                                            onClick={() =>
-                                              setExpandedRepliesByComment((prev) => ({
-                                                ...prev,
-                                                [comment._id]: true,
-                                              }))
-                                            }
-                                          >
-                                            View {hiddenRepliesCount} more replies
-                                          </button>
-                                        </div>
-                                      ) : null}
                                     </div>
 
                                     <form
@@ -878,8 +864,10 @@ export function FeedPage() {
                                   </div>
                                 </div>
                               )
-                            })}
-                          </div>
+                                })}
+                              </div>
+                            </>
+                          ) : null}
                         </div>
                       </div>
                       )

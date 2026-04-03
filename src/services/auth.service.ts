@@ -1,4 +1,14 @@
-import type { ApiResponse, AuthResponse, LoginPayload, LoginResponse, RegisterPayload, User, VerifyEmailPayload } from '../types'
+import type {
+  ApiResponse,
+  AuthResponse,
+  LoginPayload,
+  LoginResponse,
+  RegisterPayload,
+  ResendOtpPayload,
+  SocialLoginPayload,
+  User,
+  VerifyEmailPayload,
+} from '../types'
 import { http } from './http'
 
 const TOKEN_KEY = 'buddy_token'
@@ -59,6 +69,44 @@ export async function verifyEmail(payload: VerifyEmailPayload) {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export async function resendOtp(payload: ResendOtpPayload) {
+  return await http.request<ApiResponse<null> | { success: boolean; message: string }>('/auth/resend-otp', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function socialLogin(payload: SocialLoginPayload): Promise<AuthResponse> {
+  const loginResponse = await http.request<ApiResponse<LoginResponse> | LoginResponse>('/auth/social-login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  const loginData = readData(loginResponse)
+  const accessToken = loginData.accessToken
+  const refreshToken = loginData.refreshToken
+
+  let user: AuthResponse['user']
+  try {
+    const userResponse = await http.request<ApiResponse<User> | User>('/user/profile', { method: 'GET' }, accessToken)
+    user = readData(userResponse) as AuthResponse['user']
+  } catch {
+    user = {
+      _id: 'social-user',
+      firstName: 'User',
+      lastName: '',
+      email: '',
+    }
+  }
+
+  const authResponse: AuthResponse = {
+    token: accessToken,
+    user,
+  }
+  persistSession(authResponse, refreshToken)
+  return authResponse
 }
 
 export async function login(payload: LoginPayload): Promise<AuthResponse> {
