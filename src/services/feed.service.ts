@@ -29,27 +29,15 @@ function toAbsoluteImageUrl(pathOrUrl?: string | null) {
   return `${IMAGE_BASE_URL}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`
 }
 
-async function patchLike(path: string, isCurrentlyLiked: boolean, token: string) {
-  try {
-    await http.request(
-      path,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ isLiked: !isCurrentlyLiked }),
-      },
-      token,
-    )
-    return
-  } catch {
-    await http.request(
-      path,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ isLiked: isCurrentlyLiked }),
-      },
-      token,
-    )
-  }
+async function postLike(path: string, isLiked: boolean, token: string) {
+  await http.request(
+    path,
+    {
+      method: 'POST',
+      body: JSON.stringify({ isLiked }),
+    },
+    token,
+  )
 }
 
 async function getPostLikers(postId: string, token: string) {
@@ -155,7 +143,7 @@ export async function togglePostLike(postId: string, isCurrentlyLiked: boolean):
     throw new Error('Unauthorized')
   }
 
-  await patchLike(`/post/likes/${postId}`, isCurrentlyLiked, token)
+  await postLike(`/post/likes/${postId}`, !isCurrentlyLiked, token)
 }
 
 export async function addComment(postId: string, content: string): Promise<void> {
@@ -180,7 +168,7 @@ export async function toggleCommentLike(commentId: string, isCurrentlyLiked: boo
     throw new Error('Unauthorized')
   }
 
-  await patchLike(`/post/comments/likes/${commentId}`, isCurrentlyLiked, token)
+  await postLike(`/post/comments/likes/${commentId}`, !isCurrentlyLiked, token)
 }
 
 export async function addReply(commentId: string, content: string): Promise<void> {
@@ -205,5 +193,5 @@ export async function toggleReplyLike(replyId: string, isCurrentlyLiked: boolean
     throw new Error('Unauthorized')
   }
 
-  await patchLike(`/post/comnt-replies/likes/${replyId}`, isCurrentlyLiked, token)
+  await postLike(`/post/comnt-replies/likes/${replyId}`, !isCurrentlyLiked, token)
 }

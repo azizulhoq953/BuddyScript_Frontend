@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -12,20 +12,105 @@ import {
 } from '../../services/feed.service'
 import type { FeedReaction, Post, Visibility } from '../../types'
 
-function formatTime(value: string) {
-  return new Date(value).toLocaleString()
-}
+const REACTION_OPTIONS = [
+  { key: 'LIKE', label: 'Like', emoji: '👍', color: '#1877f2' },
+  { key: 'LOVE', label: 'Love', emoji: '❤️', color: '#f33e58' },
+  { key: 'CARE', label: 'Care', emoji: '🤗', color: '#f7b125' },
+  { key: 'HAHA', label: 'Haha', emoji: '😆', color: '#f7b125' },
+] as const
 
-function toNames(reactions: FeedReaction[] | undefined) {
-  if (!reactions || reactions.length === 0) {
-    return 'No one yet'
+type ReactionKey = (typeof REACTION_OPTIONS)[number]['key']
+const INITIAL_VISIBLE_COMMENTS = 1
+const INITIAL_VISIBLE_REPLIES = 1
+
+function formatRelativeTime(value: string) {
+  const diffInSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))
+
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds || 1} second${diffInSeconds === 1 ? '' : 's'} ago`
   }
 
-  return reactions.map((item) => `${item.firstName} ${item.lastName}`).join(', ')
+  const diffInMinutes = Math.floor(diffInSeconds / 60)
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes} minute${diffInMinutes === 1 ? '' : 's'} ago`
+  }
+
+  const diffInHours = Math.floor(diffInMinutes / 60)
+  if (diffInHours < 24) {
+    return `${diffInHours} hour${diffInHours === 1 ? '' : 's'} ago`
+  }
+
+  const diffInDays = Math.floor(diffInHours / 24)
+  if (diffInDays < 30) {
+    return `${diffInDays} day${diffInDays === 1 ? '' : 's'} ago`
+  }
+
+  const diffInMonths = Math.floor(diffInDays / 30)
+  if (diffInMonths < 12) {
+    return `${diffInMonths} month${diffInMonths === 1 ? '' : 's'} ago`
+  }
+
+  const diffInYears = Math.floor(diffInDays / 365)
+  return `${diffInYears} year${diffInYears === 1 ? '' : 's'} ago`
 }
 
 function getPostImage(post: Post) {
   return post.image ?? post.images?.[0]
+}
+
+function getPostLikeCount(post: Post) {
+  return post.likedBy?.length ?? post.likeCount ?? 0
+}
+
+function getPostCommentCount(post: Post) {
+  return post.comments?.length ?? post.commentCount ?? 0
+}
+
+function getCommenterNames(post: Post) {
+  const comments = post.comments ?? []
+  const uniqueNames = new Set<string>()
+
+  comments.forEach((comment) => {
+    uniqueNames.add(`${comment.author.firstName} ${comment.author.lastName}`)
+  })
+
+  return [...uniqueNames]
+}
+
+function getReactionInitials(reaction: FeedReaction) {
+  return `${reaction.firstName.charAt(0)}${reaction.lastName.charAt(0)}`.toUpperCase()
+}
+
+function getReactionOption(key: ReactionKey) {
+  return REACTION_OPTIONS.find((reaction) => reaction.key === key) ?? REACTION_OPTIONS[0]
+}
+
+function HoverDetailsCard({
+  title,
+  total,
+  names,
+}: {
+  title: string
+  total: number
+  names: string[]
+}) {
+  return (
+    <div className="_feed_hover_detail_card">
+      <p className="_feed_hover_detail_title">
+        {title}: {total}
+      </p>
+      {names.length > 0 ? (
+        <ul className="_feed_hover_detail_list">
+          {names.slice(0, 6).map((name) => (
+            <li key={name}>{name}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="_feed_hover_detail_empty">No one yet</p>
+      )}
+      {names.length > 6 ? <p className="_feed_hover_detail_more">+{names.length - 6} more</p> : null}
+    </div>
+  )
 }
 
 export function FeedPage() {
@@ -37,11 +122,17 @@ export function FeedPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [composerText, setComposerText] = useState('')
-  const [visibility, setVisibility] = useState<Visibility>('PUBLIC')
+  const [visibility] = useState<Visibility>('PUBLIC')
   const [image, setImage] = useState<File | null>(null)
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
+  const [postReactionMap, setPostReactionMap] = useState<Record<string, ReactionKey>>({})
+  const [commentReactionMap, setCommentReactionMap] = useState<Record<string, ReactionKey>>({})
+  const [replyReactionMap, setReplyReactionMap] = useState<Record<string, ReactionKey>>({})
+  const [expandedCommentsByPost, setExpandedCommentsByPost] = useState<Record<string, boolean>>({})
+  const [expandedRepliesByComment, setExpandedRepliesByComment] = useState<Record<string, boolean>>({})
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const canPost = useMemo(() => composerText.trim().length > 0 && !submitting, [composerText, submitting])
 
@@ -80,7 +171,6 @@ export function FeedPage() {
       await refreshPosts()
       setComposerText('')
       setImage(null)
-      setVisibility('PUBLIC')
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : 'Post creation failed'
       setError(message)
@@ -223,25 +313,29 @@ export function FeedPage() {
                           <label className="_feed_textarea_label">Write something ...</label>
                         </div>
                       </div>
-                      <div className="d-flex justify-content-between align-items-center mt-3 gap-2 flex-wrap">
-                        <div className="d-flex align-items-center gap-2">
-                          <select
-                            className="form-select"
-                            value={visibility}
-                            onChange={(event) => setVisibility(event.target.value as Visibility)}
-                            style={{ width: 160 }}
+                      <div className="_feed_inner_text_area_bottom">
+                        <div className="_feed_inner_text_area_item">
+                          <button
+                            type="button"
+                            className="_feed_common _feed_inner_text_area_bottom_photo_link"
+                            onClick={() => fileInputRef.current?.click()}
                           >
-                            <option value="PUBLIC">Public</option>
-                            <option value="PRIVATE">Private</option>
-                          </select>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="form-control"
-                            onChange={(event) => setImage(event.target.files?.[0] ?? null)}
-                            style={{ maxWidth: 280 }}
-                          />
+                            <span className="_mar_img">Photo</span>
+                          </button>
+
+                          <button type="button" className="_feed_common _feed_inner_text_area_bottom_photo_link">
+                            <span className="_mar_img">Video</span>
+                          </button>
+
+                          <button type="button" className="_feed_common _feed_inner_text_area_bottom_photo_link">
+                            <span className="_mar_img">Event</span>
+                          </button>
+
+                          <button type="button" className="_feed_common _feed_inner_text_area_bottom_photo_link">
+                            <span className="_mar_img">Article</span>
+                          </button>
                         </div>
+
                         <button
                           type="button"
                           className="_feed_inner_text_area_btn_link"
@@ -251,6 +345,15 @@ export function FeedPage() {
                           <span>{submitting ? 'Posting...' : 'Post'}</span>
                         </button>
                       </div>
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="d-none"
+                        onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+                      />
+                      {image ? <p className="_mar_t8 _feed_inner_timline_para">Selected: {image.name}</p> : null}
                       {error ? <p className="_mar_t16 text-danger">{error}</p> : null}
                     </div>
 
@@ -263,7 +366,22 @@ export function FeedPage() {
                       </div>
                     ) : null}
 
-                    {posts.map((post) => (
+                    {posts.map((post) => {
+                      const likeCount = getPostLikeCount(post)
+                      const commentCount = getPostCommentCount(post)
+                      const allComments = post.comments ?? []
+                      const showAllComments = expandedCommentsByPost[post._id] ?? false
+                      const visibleComments = showAllComments ? allComments : allComments.slice(0, INITIAL_VISIBLE_COMMENTS)
+                      const hiddenCommentsCount = Math.max(0, allComments.length - visibleComments.length)
+                      const likeNames = (post.likedBy ?? []).map((item) => `${item.firstName} ${item.lastName}`)
+                      const commentNames = getCommenterNames(post)
+                      const topLikers = (post.likedBy ?? []).slice(0, 4)
+                      const selectedReactionKey = postReactionMap[post._id] ?? 'LIKE'
+                      const selectedReaction = getReactionOption(selectedReactionKey)
+                      const reactionLabel = post.isLiked ? selectedReaction.label : 'Like'
+                      const reactionColor = post.isLiked ? selectedReaction.color : undefined
+
+                      return (
                       <div key={post._id} className="_feed_inner_timeline_post_area _b_radious6 _padd_b24 _padd_t24 _mar_b16">
                         <div className="_feed_inner_timeline_content _padd_r24 _padd_l24">
                           <div className="_feed_inner_timeline_post_top">
@@ -276,7 +394,7 @@ export function FeedPage() {
                                   {post.author.firstName} {post.author.lastName}
                                 </h4>
                                 <p className="_feed_inner_timeline_post_box_para">
-                                  {formatTime(post.createdAt)} · <a href="#0">{post.visibility}</a>
+                                  {formatRelativeTime(post.createdAt)} · <a href="#0">{post.visibility}</a>
                                 </p>
                               </div>
                             </div>
@@ -290,32 +408,116 @@ export function FeedPage() {
                         </div>
 
                         <div className="_feed_inner_timeline_total_reacts _padd_r24 _padd_l24 _mar_b26">
+                          <div className="_feed_react_summary_left">
+                            <div className="_feed_react_avatar_stack">
+                              {topLikers.map((reaction) =>
+                                reaction.profile ? (
+                                  <img
+                                    key={reaction._id}
+                                    src={reaction.profile}
+                                    alt={`${reaction.firstName} ${reaction.lastName}`}
+                                    className="_feed_react_avatar"
+                                  />
+                                ) : (
+                                  <span key={reaction._id} className="_feed_react_avatar _feed_react_avatar_fallback">
+                                    {getReactionInitials(reaction)}
+                                  </span>
+                                ),
+                              )}
+                              {likeCount > topLikers.length ? (
+                                <span className="_feed_react_avatar _feed_react_avatar_more">+{likeCount - topLikers.length}</span>
+                              ) : null}
+                            </div>
+
+                            <div className="_feed_hover_detail_wrap">
+                              <p className="_feed_inner_timline_para">
+                                {likeCount} {likeCount === 1 ? 'React' : 'Reacts'}
+                              </p>
+                              <HoverDetailsCard title="Reactions" total={likeCount} names={likeNames} />
+                            </div>
+                          </div>
+
                           <div className="_feed_inner_timeline_total_reacts_txt">
-                            <p className="_feed_inner_timeline_total_reacts_para1">
-                              <span>{post.comments?.length ?? post.commentCount ?? 0}</span> Comments
-                            </p>
+                            <div className="_feed_hover_detail_wrap">
+                              <p className="_feed_inner_timeline_total_reacts_para1">
+                                <span>{commentCount}</span> Comments
+                              </p>
+                              <HoverDetailsCard title="Comments" total={commentCount} names={commentNames} />
+                            </div>
+
                             <p className="_feed_inner_timeline_total_reacts_para2">
-                              <span>{post.likeCount ?? post.likedBy?.length ?? 0}</span> Likes
+                              <span>{likeCount}</span> Likes
                             </p>
                           </div>
                         </div>
 
-                        <div className="_feed_inner_timeline_reaction">
-                          <button
-                            className={`_feed_inner_timeline_reaction_emoji _feed_reaction ${post.isLiked ? '_feed_reaction_active' : ''}`}
-                            onClick={async () => {
-                              try {
-                                await togglePostLike(post._id, post.isLiked)
-                                await refreshPosts()
-                              } catch (unknownError) {
-                                const message = unknownError instanceof Error ? unknownError.message : 'Unable to react'
-                                setError(message)
-                              }
-                            }}
-                          >
-                            <span className="_feed_inner_timeline_reaction_link">{post.isLiked ? 'Unlike' : 'Like'}</span>
+                        <div className="_feed_inner_timeline_reaction _feed_reaction_bar">
+                          <div className="_feed_hover_detail_wrap _feed_reaction_slot _feed_reaction_slot_like">
+                            <button
+                              className={`_feed_inner_timeline_reaction_emoji _feed_reaction ${post.isLiked ? '_feed_reaction_active' : ''}`}
+                              onClick={async () => {
+                                try {
+                                  await togglePostLike(post._id, post.isLiked)
+                                  if (post.isLiked) {
+                                    setPostReactionMap((prev) => ({ ...prev, [post._id]: 'LIKE' }))
+                                  } else {
+                                    setPostReactionMap((prev) => ({ ...prev, [post._id]: prev[post._id] ?? 'LIKE' }))
+                                  }
+                                  await refreshPosts()
+                                } catch (unknownError) {
+                                  const message = unknownError instanceof Error ? unknownError.message : 'Unable to react'
+                                  setError(message)
+                                }
+                              }}
+                            >
+                              <span className="_feed_inner_timeline_reaction_link" style={reactionColor ? { color: reactionColor } : undefined}>
+                                {reactionLabel}
+                              </span>
+                            </button>
+
+                            <div className="_feed_reaction_picker">
+                              {REACTION_OPTIONS.map((reaction) => (
+                                <button
+                                  key={reaction.key}
+                                  type="button"
+                                  className="_feed_reaction_option"
+                                  onClick={async () => {
+                                    try {
+                                      if (!post.isLiked) {
+                                        await togglePostLike(post._id, post.isLiked)
+                                      }
+                                      setPostReactionMap((prev) => ({ ...prev, [post._id]: reaction.key }))
+                                      await refreshPosts()
+                                    } catch (unknownError) {
+                                      const message = unknownError instanceof Error ? unknownError.message : 'Unable to react'
+                                      setError(message)
+                                    }
+                                  }}
+                                  title={reaction.label}
+                                >
+                                  <span>{reaction.emoji}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="_feed_hover_detail_wrap _feed_reaction_slot">
+                            <button
+                              type="button"
+                              className="_feed_inner_timeline_reaction_emoji _feed_reaction"
+                              onClick={() => {
+                                const input = document.getElementById(`comment-input-${post._id}`) as HTMLTextAreaElement | null
+                                input?.focus()
+                              }}
+                            >
+                              <span className="_feed_inner_timeline_reaction_link">Comment</span>
+                            </button>
+                            <HoverDetailsCard title="Comments" total={commentCount} names={commentNames} />
+                          </div>
+
+                          <button type="button" className="_feed_inner_timeline_reaction_emoji _feed_reaction _feed_reaction_slot">
+                            <span className="_feed_inner_timeline_reaction_link">Share</span>
                           </button>
-                          <span className="_feed_inner_timeline_reaction_link">Liked by: {toNames(post.likedBy)}</span>
                         </div>
 
                         <div className="_feed_inner_timeline_cooment_area _padd_r24 _padd_l24">
@@ -339,15 +541,19 @@ export function FeedPage() {
                                 }
                               }}
                             >
-                              <div className="_feed_inner_comment_box_content_txt w-100">
-                                <textarea
-                                  className="form-control _comment_textarea"
-                                  placeholder="Write a comment"
-                                  value={commentDraft[post._id] ?? ''}
-                                  onChange={(event) =>
-                                    setCommentDraft((prev) => ({ ...prev, [post._id]: event.target.value }))
-                                  }
-                                />
+                              <div className="_feed_inner_comment_box_content">
+                                <img src="/assets/images/txt_img.png" alt="profile" className="_comment_img" />
+                                <div className="_feed_inner_comment_box_content_txt w-100">
+                                  <textarea
+                                    id={`comment-input-${post._id}`}
+                                    className="form-control _comment_textarea"
+                                    placeholder="Write a comment"
+                                    value={commentDraft[post._id] ?? ''}
+                                    onChange={(event) =>
+                                      setCommentDraft((prev) => ({ ...prev, [post._id]: event.target.value }))
+                                    }
+                                  />
+                                </div>
                               </div>
                               <button className="_btn1" type="submit">
                                 Comment
@@ -356,77 +562,281 @@ export function FeedPage() {
                           </div>
 
                           <div className="_mar_t16">
-                            {(post.comments ?? []).map((comment) => {
+                            {allComments.length > INITIAL_VISIBLE_COMMENTS && !showAllComments ? (
+                              <div className="_previous_comment">
+                                <button
+                                  type="button"
+                                  className="_previous_comment_txt"
+                                  onClick={() =>
+                                    setExpandedCommentsByPost((prev) => ({
+                                      ...prev,
+                                      [post._id]: true,
+                                    }))
+                                  }
+                                >
+                                  View {hiddenCommentsCount} more comments
+                                </button>
+                              </div>
+                            ) : null}
+
+                            {visibleComments.map((comment) => {
                               const replyKey = `${post._id}:${comment._id}`
+                              const selectedCommentReactionKey = commentReactionMap[comment._id] ?? 'LIKE'
+                              const selectedCommentReaction = getReactionOption(selectedCommentReactionKey)
+                              const commentReactionLabel = comment.isLiked ? selectedCommentReaction.label : 'Like'
+                              const commentReactionColor = comment.isLiked ? selectedCommentReaction.color : undefined
+                              const commentLikeCount = comment.likedBy?.length ?? comment.likeCount ?? 0
+                              const commentLikeNames = (comment.likedBy ?? []).map(
+                                (reaction) => `${reaction.firstName} ${reaction.lastName}`,
+                              )
+                              const allReplies = comment.replies ?? []
+                              const showAllReplies = expandedRepliesByComment[comment._id] ?? false
+                              const visibleReplies = showAllReplies ? allReplies : allReplies.slice(0, INITIAL_VISIBLE_REPLIES)
+                              const hiddenRepliesCount = Math.max(0, allReplies.length - visibleReplies.length)
 
                               return (
                                 <div key={comment._id} className="_comment_main _mar_b16">
-                                  <div className="_comment_area w-100">
+                                  <div className="_comment_image">
+                                    <img
+                                      src={comment.author.profile ?? '/assets/images/post_img.png'}
+                                      alt={`${comment.author.firstName} ${comment.author.lastName}`}
+                                      className="_comment_img1"
+                                    />
+                                  </div>
+
+                                  <div className="_comment_area">
                                     <div className="_comment_details">
-                                      <div className="_comment_name">
-                                        <h4 className="_comment_name_title">
-                                          {comment.author.firstName} {comment.author.lastName}
-                                        </h4>
+                                      <div className="_comment_details_top">
+                                        <div className="_comment_name">
+                                          <h4 className="_comment_name_title">
+                                            {comment.author.firstName} {comment.author.lastName}
+                                          </h4>
+                                        </div>
                                       </div>
-                                      <div className="_comment_status">
-                                        <p className="_comment_status_text">
-                                          <span>{comment.content}</span>
-                                        </p>
-                                      </div>
-                                      <div className="d-flex align-items-center gap-3 mt-2">
-                                        <button
-                                          className="_btn3"
-                                          type="button"
-                                          onClick={async () => {
-                                            try {
-                                              await toggleCommentLike(comment._id, comment.isLiked)
-                                              await refreshPosts()
-                                            } catch (unknownError) {
-                                              const message =
-                                                unknownError instanceof Error ? unknownError.message : 'Unable to react'
-                                              setError(message)
-                                            }
-                                          }}
-                                        >
-                                          {comment.isLiked ? 'Unlike' : 'Like'}
-                                        </button>
-                                        <span>Liked by: {toNames(comment.likedBy)}</span>
-                                      </div>
+
+                                      <p className="_comment_status_text">
+                                        <span>{comment.content}</span>
+                                      </p>
+
+                                      {commentLikeCount > 0 ? (
+                                        <div className="_total_reactions _feed_hover_detail_wrap">
+                                          <div className="_total_react">
+                                            <span>{selectedCommentReaction.emoji}</span>
+                                          </div>
+                                          <span className="_total">{commentLikeCount}</span>
+                                          <HoverDetailsCard
+                                            title="Reactions"
+                                            total={commentLikeCount}
+                                            names={commentLikeNames}
+                                          />
+                                        </div>
+                                      ) : null}
                                     </div>
 
-                                    <div className="_mar_t16 _mar_l24">
-                                      {(comment.replies ?? []).map((reply) => (
-                                        <div key={reply._id} className="_mar_b8">
-                                          <p>
-                                            <strong>{reply.author.firstName}:</strong> {reply.content}
-                                          </p>
-                                          <div className="d-flex align-items-center gap-3">
+                                    <div className="_comment_reply_num">
+                                      <ul className="_comment_reply_list list-unstyled mb-0">
+                                        <li>
+                                          <div className="_mini_reaction_wrap">
                                             <button
-                                              className="_btn3"
+                                              className="_btn3 _mini_reaction_btn _comment_action_btn"
                                               type="button"
                                               onClick={async () => {
                                                 try {
-                                                  await toggleReplyLike(reply._id, reply.isLiked)
+                                                  await toggleCommentLike(comment._id, comment.isLiked)
+                                                  if (comment.isLiked) {
+                                                    setCommentReactionMap((prev) => ({ ...prev, [comment._id]: 'LIKE' }))
+                                                  }
                                                   await refreshPosts()
                                                 } catch (unknownError) {
                                                   const message =
-                                                    unknownError instanceof Error
-                                                      ? unknownError.message
-                                                      : 'Unable to react'
+                                                    unknownError instanceof Error ? unknownError.message : 'Unable to react'
                                                   setError(message)
                                                 }
                                               }}
+                                              style={commentReactionColor ? { color: commentReactionColor } : undefined}
                                             >
-                                              {reply.isLiked ? 'Unlike' : 'Like'}
+                                              {commentReactionLabel}
                                             </button>
-                                            <span>Liked by: {toNames(reply.likedBy)}</span>
+
+                                            <div className="_mini_reaction_picker">
+                                              {REACTION_OPTIONS.map((reaction) => (
+                                                <button
+                                                  key={reaction.key}
+                                                  type="button"
+                                                  className="_mini_reaction_option"
+                                                  onClick={async () => {
+                                                    try {
+                                                      if (!comment.isLiked) {
+                                                        await toggleCommentLike(comment._id, comment.isLiked)
+                                                      }
+                                                      setCommentReactionMap((prev) => ({ ...prev, [comment._id]: reaction.key }))
+                                                      await refreshPosts()
+                                                    } catch (unknownError) {
+                                                      const message =
+                                                        unknownError instanceof Error ? unknownError.message : 'Unable to react'
+                                                      setError(message)
+                                                    }
+                                                  }}
+                                                  title={reaction.label}
+                                                >
+                                                  {reaction.emoji}
+                                                </button>
+                                              ))}
+                                            </div>
                                           </div>
+                                        </li>
+                                        <li>
+                                          <span
+                                            onClick={() => {
+                                              const input = document.getElementById(`reply-input-${replyKey}`) as HTMLInputElement | null
+                                              input?.focus()
+                                            }}
+                                          >
+                                            Reply
+                                          </span>
+                                        </li>
+                                        <li>
+                                          <span className="_time_link">{formatRelativeTime(comment.createdAt)}</span>
+                                        </li>
+                                      </ul>
+                                    </div>
+
+                                    <div className="_mar_t16 _mar_l24">
+                                      {visibleReplies.map((reply) => {
+                                        const selectedReplyReactionKey = replyReactionMap[reply._id] ?? 'LIKE'
+                                        const selectedReplyReaction = getReactionOption(selectedReplyReactionKey)
+                                        const replyReactionLabel = reply.isLiked ? selectedReplyReaction.label : 'Like'
+                                        const replyReactionColor = reply.isLiked ? selectedReplyReaction.color : undefined
+                                        const replyLikeCount = reply.likedBy?.length ?? reply.likeCount ?? 0
+                                        const replyLikeNames = (reply.likedBy ?? []).map(
+                                          (reaction) => `${reaction.firstName} ${reaction.lastName}`,
+                                        )
+
+                                        return (
+                                          <div key={reply._id} className="_comment_main _comment_main_reply _mar_b12">
+                                            <div className="_comment_image">
+                                              <img
+                                                src={reply.author.profile ?? '/assets/images/post_img.png'}
+                                                alt={`${reply.author.firstName} ${reply.author.lastName}`}
+                                                className="_comment_img1"
+                                              />
+                                            </div>
+
+                                            <div className="_comment_area">
+                                              <div className="_comment_details">
+                                                <div className="_comment_details_top">
+                                                  <div className="_comment_name">
+                                                    <h4 className="_comment_name_title">
+                                                      {reply.author.firstName} {reply.author.lastName}
+                                                    </h4>
+                                                  </div>
+                                                </div>
+
+                                                <p className="_comment_status_text">
+                                                  <span>{reply.content}</span>
+                                                </p>
+
+                                                {replyLikeCount > 0 ? (
+                                                  <div className="_total_reactions _feed_hover_detail_wrap">
+                                                    <div className="_total_react">
+                                                      <span>{selectedReplyReaction.emoji}</span>
+                                                    </div>
+                                                    <span className="_total">{replyLikeCount}</span>
+                                                    <HoverDetailsCard
+                                                      title="Reactions"
+                                                      total={replyLikeCount}
+                                                      names={replyLikeNames}
+                                                    />
+                                                  </div>
+                                                ) : null}
+                                              </div>
+
+                                              <div className="_comment_reply_num">
+                                                <ul className="_comment_reply_list list-unstyled mb-0">
+                                                  <li>
+                                                    <div className="_mini_reaction_wrap">
+                                                      <button
+                                                        className="_btn3 _mini_reaction_btn _comment_action_btn"
+                                                        type="button"
+                                                        onClick={async () => {
+                                                          try {
+                                                            await toggleReplyLike(reply._id, reply.isLiked)
+                                                            if (reply.isLiked) {
+                                                              setReplyReactionMap((prev) => ({ ...prev, [reply._id]: 'LIKE' }))
+                                                            }
+                                                            await refreshPosts()
+                                                          } catch (unknownError) {
+                                                            const message =
+                                                              unknownError instanceof Error
+                                                                ? unknownError.message
+                                                                : 'Unable to react'
+                                                            setError(message)
+                                                          }
+                                                        }}
+                                                        style={replyReactionColor ? { color: replyReactionColor } : undefined}
+                                                      >
+                                                        {replyReactionLabel}
+                                                      </button>
+
+                                                      <div className="_mini_reaction_picker">
+                                                        {REACTION_OPTIONS.map((reaction) => (
+                                                          <button
+                                                            key={reaction.key}
+                                                            type="button"
+                                                            className="_mini_reaction_option"
+                                                            onClick={async () => {
+                                                              try {
+                                                                if (!reply.isLiked) {
+                                                                  await toggleReplyLike(reply._id, reply.isLiked)
+                                                                }
+                                                                setReplyReactionMap((prev) => ({ ...prev, [reply._id]: reaction.key }))
+                                                                await refreshPosts()
+                                                              } catch (unknownError) {
+                                                                const message =
+                                                                  unknownError instanceof Error
+                                                                    ? unknownError.message
+                                                                    : 'Unable to react'
+                                                                setError(message)
+                                                              }
+                                                            }}
+                                                            title={reaction.label}
+                                                          >
+                                                            {reaction.emoji}
+                                                          </button>
+                                                        ))}
+                                                      </div>
+                                                    </div>
+                                                  </li>
+                                                  <li>
+                                                    <span className="_time_link">{formatRelativeTime(reply.createdAt)}</span>
+                                                  </li>
+                                                </ul>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+
+                                      {hiddenRepliesCount > 0 && !showAllReplies ? (
+                                        <div className="_previous_comment _mar_l24">
+                                          <button
+                                            type="button"
+                                            className="_previous_comment_txt"
+                                            onClick={() =>
+                                              setExpandedRepliesByComment((prev) => ({
+                                                ...prev,
+                                                [comment._id]: true,
+                                              }))
+                                            }
+                                          >
+                                            View {hiddenRepliesCount} more replies
+                                          </button>
                                         </div>
-                                      ))}
+                                      ) : null}
                                     </div>
 
                                     <form
-                                      className="d-flex gap-2 _mar_t8"
+                                      className="_feed_inner_comment_box_form _comment_reply_form"
                                       onSubmit={async (event) => {
                                         event.preventDefault()
                                         const value = replyDraft[replyKey]?.trim()
@@ -444,16 +854,24 @@ export function FeedPage() {
                                         }
                                       }}
                                     >
-                                      <input
-                                        type="text"
-                                        className="form-control"
-                                        placeholder="Write a reply"
-                                        value={replyDraft[replyKey] ?? ''}
-                                        onChange={(event) =>
-                                          setReplyDraft((prev) => ({ ...prev, [replyKey]: event.target.value }))
-                                        }
-                                      />
-                                      <button className="_btn3" type="submit">
+                                      <div className="_feed_inner_comment_box">
+                                        <div className="_feed_inner_comment_box_content">
+                                          <img src="/assets/images/txt_img.png" alt="profile" className="_comment_img" />
+                                          <div className="_feed_inner_comment_box_content_txt w-100">
+                                            <input
+                                              id={`reply-input-${replyKey}`}
+                                              type="text"
+                                              className="form-control _comment_reply_input"
+                                              placeholder="Write a comment"
+                                              value={replyDraft[replyKey] ?? ''}
+                                              onChange={(event) =>
+                                                setReplyDraft((prev) => ({ ...prev, [replyKey]: event.target.value }))
+                                              }
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <button className="_btn3 _mar_t8" type="submit">
                                         Reply
                                       </button>
                                     </form>
@@ -464,7 +882,8 @@ export function FeedPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               </div>

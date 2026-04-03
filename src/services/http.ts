@@ -1,5 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://192.168.2.38:3300/api/v1'
 
+function normalizeBaseUrl(value: string) {
+  return value.replace(/\/$/, '')
+}
+
+function getBaseUrlCandidates() {
+  const primary = normalizeBaseUrl(API_BASE_URL)
+  const candidates = [primary]
+
+  // Some environments expose routes without the /api/v1 prefix.
+  if (primary.endsWith('/api/v1')) {
+    candidates.push(primary.replace(/\/api\/v1$/, ''))
+  }
+
+  return candidates
+}
+
 class HttpError extends Error {
   status: number
   details?: unknown
@@ -40,21 +56,38 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  })
+  const baseUrls = getBaseUrlCandidates()
+  let lastResponse: Response | null = null
 
-  if (!response.ok) {
-    await toError(response)
+  for (let index = 0; index < baseUrls.length; index += 1) {
+    const baseUrl = baseUrls[index]
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers,
+    })
+
+    if (response.ok) {
+      if (response.status === 204) {
+        return null as T
+      }
+
+      if (isJsonResponse(response)) {
+        return (await response.json()) as T
+      }
+
+      return null as T
+    }
+
+    lastResponse = response
+
+    // Retry only when route is missing in the primary base URL.
+    if (!(index === 0 && response.status === 404)) {
+      await toError(response)
+    }
   }
 
-  if (response.status === 204) {
-    return null as T
-  }
-
-  if (isJsonResponse(response)) {
-    return (await response.json()) as T
+  if (lastResponse) {
+    await toError(lastResponse)
   }
 
   return null as T
