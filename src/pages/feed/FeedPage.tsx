@@ -127,7 +127,7 @@ export function FeedPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [composerText, setComposerText] = useState('')
-  const [visibility] = useState<Visibility>('PUBLIC')
+  const [visibility, setVisibility] = useState<Visibility>('PUBLIC')
   const [images, setImages] = useState<File[]>([])
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
@@ -382,6 +382,21 @@ export function FeedPage() {
                           <button type="button" className="_feed_common _feed_inner_text_area_bottom_photo_link">
                             <span className="_mar_img">Article</span>
                           </button>
+
+                          <div className="_feed_post_type_wrap">
+                            <label htmlFor="post-visibility" className="_feed_post_type_label">
+                              Post Type
+                            </label>
+                            <select
+                              id="post-visibility"
+                              className="_feed_post_type_select"
+                              value={visibility}
+                              onChange={(event) => setVisibility(event.target.value as Visibility)}
+                            >
+                              <option value="PUBLIC">Public</option>
+                              <option value="PRIVATE">Private</option>
+                            </select>
+                          </div>
                         </div>
 
                         <button
