@@ -123,4 +123,5 @@ export interface CreatePostPayload {
 text: string
 visibility: Visibility
 image?: File | null
+images?: File[]
 }

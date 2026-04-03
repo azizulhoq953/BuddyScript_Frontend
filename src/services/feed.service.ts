@@ -140,8 +140,12 @@ export async function createPost(payload: CreatePostPayload): Promise<void> {
   const formData = new FormData()
   formData.append('text', payload.text)
   formData.append('visibility', payload.visibility)
-  if (payload.image) {
-    formData.append('image', payload.image)
+  const images = payload.images ?? (payload.image ? [payload.image] : [])
+
+  if (images.length > 0) {
+    images.forEach((image) => {
+      formData.append('image', image)
+    })
   }
 
   await http.request('/post', { method: 'POST', body: formData }, token)

@@ -19,6 +19,16 @@ const REACTION_OPTIONS = [
   { key: 'HAHA', label: 'Haha', emoji: '😆', color: '#f7b125' },
 ] as const
 
+const COMPOSER_TOOLBAR_ACTIONS = [
+  { label: 'B', title: 'Bold', before: '**', after: '**' },
+  { label: 'I', title: 'Italic', before: '_', after: '_' },
+  { label: 'U', title: 'Underline', before: '<u>', after: '</u>' },
+  { label: 'Quote', title: 'Quote', before: '> ', after: '' },
+  { label: '• List', title: 'Bullet list', before: '\n- ', after: '' },
+  { label: '1. List', title: 'Numbered list', before: '\n1. ', after: '' },
+  { label: 'Link', title: 'Link', before: '[', after: '](https://)' },
+] as const
+
 type ReactionKey = (typeof REACTION_OPTIONS)[number]['key']
 
 function formatRelativeTime(value: string) {
@@ -52,10 +62,6 @@ function formatRelativeTime(value: string) {
   return `${diffInYears} year${diffInYears === 1 ? '' : 's'} ago`
 }
 
-function getPostImage(post: Post) {
-  return post.image ?? post.images?.[0]
-}
-
 function getPostLikeCount(post: Post) {
   return post.likedBy?.length ?? post.likeCount ?? 0
 }
@@ -81,6 +87,10 @@ function getReactionInitials(reaction: FeedReaction) {
 
 function getReactionOption(key: ReactionKey) {
   return REACTION_OPTIONS.find((reaction) => reaction.key === key) ?? REACTION_OPTIONS[0]
+}
+
+function getPostImages(post: Post) {
+  return (post.images?.length ? post.images : post.image ? [post.image] : []).filter(Boolean)
 }
 
 function HoverDetailsCard({
@@ -121,7 +131,8 @@ export function FeedPage() {
   const [error, setError] = useState('')
   const [composerText, setComposerText] = useState('')
   const [visibility] = useState<Visibility>('PUBLIC')
-  const [image, setImage] = useState<File | null>(null)
+  const [images, setImages] = useState<File[]>([])
+  const [composerFocused, setComposerFocused] = useState(false)
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
   const [postReactionMap, setPostReactionMap] = useState<Record<string, ReactionKey>>({})
@@ -129,6 +140,7 @@ export function FeedPage() {
   const [replyReactionMap, setReplyReactionMap] = useState<Record<string, ReactionKey>>({})
   const [expandedCommentsByPost, setExpandedCommentsByPost] = useState<Record<string, boolean>>({})
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const canPost = useMemo(() => composerText.trim().length > 0 && !submitting, [composerText, submitting])
@@ -164,16 +176,57 @@ export function FeedPage() {
     setError('')
     setSubmitting(true)
     try {
-      await createPost({ text: composerText.trim(), image, visibility })
+      await createPost({
+        text: composerText.trim(),
+        image: images[0] ?? null,
+        images,
+        visibility,
+      })
       await refreshPosts()
       setComposerText('')
-      setImage(null)
+      setImages([])
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : 'Post creation failed'
       setError(message)
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleComposerAction = (before: string, after = '', placeholder = 'text') => {
+    const input = composerRef.current
+    if (!input) {
+      setComposerText((current) => `${current}${before}${placeholder}${after}`)
+      return
+    }
+
+    const start = input.selectionStart ?? composerText.length
+    const end = input.selectionEnd ?? composerText.length
+    const selectedText = composerText.slice(start, end) || placeholder
+    const nextValue = `${composerText.slice(0, start)}${before}${selectedText}${after}${composerText.slice(end)}`
+
+    setComposerText(nextValue)
+
+    window.requestAnimationFrame(() => {
+      const nextCursorStart = start + before.length
+      const nextCursorEnd = nextCursorStart + selectedText.length
+      input.focus()
+      input.setSelectionRange(nextCursorStart, nextCursorEnd)
+    })
+  }
+
+  const handleComposerImagesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files ?? [])
+    if (selectedFiles.length === 0) {
+      return
+    }
+
+    setImages((current) => [...current, ...selectedFiles])
+    event.target.value = ''
+  }
+
+  const removeComposerImage = (indexToRemove: number) => {
+    setImages((current) => current.filter((_, index) => index !== indexToRemove))
   }
 
   const handleLogout = () => {
@@ -300,16 +353,43 @@ export function FeedPage() {
                         <div className="_feed_inner_text_area_box_image">
                           <img src="/assets/images/txt_img.png" alt="Profile" className="_txt_img" />
                         </div>
-                        <div className="form-floating _feed_inner_text_area_box_form">
-                          <textarea
-                            className="form-control _textarea"
-                            placeholder="Write something ..."
-                            value={composerText}
-                            onChange={(event) => setComposerText(event.target.value)}
-                          />
-                          <label className="_feed_textarea_label">Write something ...</label>
+                        <div className="_feed_composer_editor_wrap w-100">
+                          {composerFocused ? (
+                            <div className="_feed_composer_toolbar">
+                              {COMPOSER_TOOLBAR_ACTIONS.map((action) => (
+                                <button
+                                  key={action.title}
+                                  type="button"
+                                  className="_feed_composer_toolbar_btn"
+                                  title={action.title}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => handleComposerAction(action.before, action.after, action.label)}
+                                >
+                                  <span>{action.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="form-floating _feed_inner_text_area_box_form">
+                            <textarea
+                              ref={composerRef}
+                              className="form-control _textarea _feed_composer_textarea"
+                              placeholder="Write something ..."
+                              value={composerText}
+                              onChange={(event) => setComposerText(event.target.value)}
+                              onFocus={() => setComposerFocused(true)}
+                              onBlur={() => setComposerFocused(false)}
+                            />
+                            <label className="_feed_textarea_label">Write something ...</label>
+                          </div>
                         </div>
                       </div>
+                      {composerFocused ? (
+                        <div className="_feed_composer_hint">
+                          Rich text tools are ready. Format selected text and add multiple images before posting.
+                        </div>
+                      ) : null}
                       <div className="_feed_inner_text_area_bottom">
                         <div className="_feed_inner_text_area_item">
                           <button
@@ -347,10 +427,30 @@ export function FeedPage() {
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
+                        multiple
                         className="d-none"
-                        onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+                        onChange={handleComposerImagesChange}
                       />
-                      {image ? <p className="_mar_t8 _feed_inner_timline_para">Selected: {image.name}</p> : null}
+                      {images.length > 0 ? (
+                        <div className="_feed_selected_images_wrap _mar_t12">
+                          <div className="_feed_selected_images_grid">
+                            {images.map((file, index) => (
+                              <div key={`${file.name}-${file.lastModified}-${index}`} className="_feed_selected_image_card">
+                                <img src={URL.createObjectURL(file)} alt={file.name} className="_feed_selected_image" />
+                                <button
+                                  type="button"
+                                  className="_feed_selected_image_remove"
+                                  onClick={() => removeComposerImage(index)}
+                                  aria-label={`Remove ${file.name}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="_mar_t8 _feed_inner_timline_para">Selected {images.length} image{images.length > 1 ? 's' : ''}</p>
+                        </div>
+                      ) : null}
                       {error ? <p className="_mar_t16 text-danger">{error}</p> : null}
                     </div>
 
@@ -369,6 +469,7 @@ export function FeedPage() {
                       const allComments = post.comments ?? []
                       const showCommentsSection = expandedCommentsByPost[post._id] ?? false
                       const visibleComments = showCommentsSection ? allComments : []
+                      const postImages = getPostImages(post)
                       const likeNames = (post.likedBy ?? []).map((item) => `${item.firstName} ${item.lastName}`)
                       const commentNames = getCommenterNames(post)
                       const topLikers = (post.likedBy ?? []).slice(0, 4)
@@ -396,9 +497,22 @@ export function FeedPage() {
                             </div>
                           </div>
                           <h4 className="_feed_inner_timeline_post_title">{post.text}</h4>
-                          {getPostImage(post) ? (
+                          {postImages.length > 0 ? (
                             <div className="_feed_inner_timeline_image">
-                              <img src={getPostImage(post)} alt="post" className="_time_img" />
+                              {postImages.length === 1 ? (
+                                <img src={postImages[0]} alt="post" className="_time_img" />
+                              ) : (
+                                <div className="_feed_post_gallery">
+                                  {postImages.slice(0, 4).map((imageSrc, index) => (
+                                    <div key={`${post._id}-${imageSrc}-${index}`} className="_feed_post_gallery_item">
+                                      <img src={imageSrc} alt={`post ${index + 1}`} className="_feed_post_gallery_img" />
+                                      {index === 3 && postImages.length > 4 ? (
+                                        <div className="_feed_post_gallery_more">+{postImages.length - 4}</div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ) : null}
                         </div>
