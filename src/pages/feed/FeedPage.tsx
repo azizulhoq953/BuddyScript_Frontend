@@ -19,14 +19,11 @@ const REACTION_OPTIONS = [
   { key: 'HAHA', label: 'Haha', emoji: '😆', color: '#f7b125' },
 ] as const
 
-const COMPOSER_TOOLBAR_ACTIONS = [
-  { label: 'B', title: 'Bold', before: '**', after: '**' },
-  { label: 'I', title: 'Italic', before: '_', after: '_' },
-  { label: 'U', title: 'Underline', before: '<u>', after: '</u>' },
-  { label: 'Quote', title: 'Quote', before: '> ', after: '' },
-  { label: '• List', title: 'Bullet list', before: '\n- ', after: '' },
-  { label: '1. List', title: 'Numbered list', before: '\n1. ', after: '' },
-  { label: 'Link', title: 'Link', before: '[', after: '](https://)' },
+const STORY_ITEMS = [
+  { id: 'own', name: 'Your Story', image: '/assets/images/mobile_story_img.png', avatar: '/assets/images/post_img.png', own: true },
+  { id: 'ryan-1', name: 'Ryan Roslansky', image: '/assets/images/mobile_story_img1.png', avatar: '/assets/images/people1.png', own: false },
+  { id: 'ryan-2', name: 'Ryan Roslansky', image: '/assets/images/mobile_story_img2.png', avatar: '/assets/images/people2.png', own: false },
+  { id: 'dylan', name: 'Dylan Field', image: '/assets/images/slider1.png', avatar: '/assets/images/people3.png', own: false },
 ] as const
 
 type ReactionKey = (typeof REACTION_OPTIONS)[number]['key']
@@ -132,7 +129,6 @@ export function FeedPage() {
   const [composerText, setComposerText] = useState('')
   const [visibility] = useState<Visibility>('PUBLIC')
   const [images, setImages] = useState<File[]>([])
-  const [composerFocused, setComposerFocused] = useState(false)
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
   const [postReactionMap, setPostReactionMap] = useState<Record<string, ReactionKey>>({})
@@ -140,7 +136,6 @@ export function FeedPage() {
   const [replyReactionMap, setReplyReactionMap] = useState<Record<string, ReactionKey>>({})
   const [expandedCommentsByPost, setExpandedCommentsByPost] = useState<Record<string, boolean>>({})
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const canPost = useMemo(() => composerText.trim().length > 0 && !submitting, [composerText, submitting])
@@ -193,28 +188,6 @@ export function FeedPage() {
     }
   }
 
-  const handleComposerAction = (before: string, after = '', placeholder = 'text') => {
-    const input = composerRef.current
-    if (!input) {
-      setComposerText((current) => `${current}${before}${placeholder}${after}`)
-      return
-    }
-
-    const start = input.selectionStart ?? composerText.length
-    const end = input.selectionEnd ?? composerText.length
-    const selectedText = composerText.slice(start, end) || placeholder
-    const nextValue = `${composerText.slice(0, start)}${before}${selectedText}${after}${composerText.slice(end)}`
-
-    setComposerText(nextValue)
-
-    window.requestAnimationFrame(() => {
-      const nextCursorStart = start + before.length
-      const nextCursorEnd = nextCursorStart + selectedText.length
-      input.focus()
-      input.setSelectionRange(nextCursorStart, nextCursorEnd)
-    })
-  }
-
   const handleComposerImagesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files ?? [])
     if (selectedFiles.length === 0) {
@@ -242,20 +215,33 @@ export function FeedPage() {
     <div className="_layout _layout_main_wrapper">
       <div className="_main_layout">
         {/* Header Navigation */}
-        <nav className="navbar navbar-expand-lg navbar-light _header_nav _padd_t10 _padd_b10">
+        <nav className="navbar navbar-expand-lg navbar-light _header_nav _padd_t10 _padd_b10 _feed_top_navbar">
           <div className="container _custom_container">
             <div className="_logo_wrap">
               <img src="/assets/images/logo.svg" alt="BuddyScript" className="_nav_logo" />
             </div>
             
-            <form className="d-flex gap-2 ms-auto me-4 flex-grow-1" style={{ maxWidth: '300px' }} onSubmit={(e) => e.preventDefault()}>
+            <form className="d-flex gap-2 ms-auto me-3 flex-grow-1" style={{ maxWidth: '320px' }} onSubmit={(e) => e.preventDefault()}>
               <input 
                 type="search" 
                 className="form-control" 
-                placeholder="Search..."
-                style={{ borderRadius: '20px' }}
+                placeholder="input search text"
+                style={{ borderRadius: '999px' }}
               />
             </form>
+
+            <div className="_feed_nav_actions d-none d-md-flex">
+              <button type="button" className="_feed_nav_action _feed_nav_action_active" aria-label="Home">⌂</button>
+              <button type="button" className="_feed_nav_action" aria-label="Network">◌</button>
+              <button type="button" className="_feed_nav_action" aria-label="Notifications">
+                ○
+                <span className="_feed_nav_badge">2</span>
+              </button>
+              <button type="button" className="_feed_nav_action" aria-label="Messages">
+                ◇
+                <span className="_feed_nav_badge">1</span>
+              </button>
+            </div>
 
             <div className="position-relative">
               <button 
@@ -347,49 +333,34 @@ export function FeedPage() {
                       </div>
                     ) : null}
 
+                    <div className="_feed_story_strip _b_radious6 _mar_b16">
+                      {STORY_ITEMS.map((story) => (
+                        <div key={story.id} className="_feed_story_card">
+                          <img src={story.image} alt={story.name} className="_feed_story_bg" />
+                          <div className="_feed_story_overlay" />
+                          <img src={story.avatar} alt={story.name} className="_feed_story_avatar" />
+                          {story.own ? <button type="button" className="_feed_story_add_btn">+</button> : null}
+                          <p className="_feed_story_name">{story.name}</p>
+                        </div>
+                      ))}
+                    </div>
+
                     {/* Post Composer */}
                     <div className="_feed_inner_text_area _b_radious6 _padd_b24 _padd_t24 _padd_r24 _padd_l24 _mar_b16">
                       <div className="_feed_inner_text_area_box">
                         <div className="_feed_inner_text_area_box_image">
                           <img src="/assets/images/txt_img.png" alt="Profile" className="_txt_img" />
                         </div>
-                        <div className="_feed_composer_editor_wrap w-100">
-                          {composerFocused ? (
-                            <div className="_feed_composer_toolbar">
-                              {COMPOSER_TOOLBAR_ACTIONS.map((action) => (
-                                <button
-                                  key={action.title}
-                                  type="button"
-                                  className="_feed_composer_toolbar_btn"
-                                  title={action.title}
-                                  onMouseDown={(event) => event.preventDefault()}
-                                  onClick={() => handleComposerAction(action.before, action.after, action.label)}
-                                >
-                                  <span>{action.label}</span>
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          <div className="form-floating _feed_inner_text_area_box_form">
-                            <textarea
-                              ref={composerRef}
-                              className="form-control _textarea _feed_composer_textarea"
-                              placeholder="Write something ..."
-                              value={composerText}
-                              onChange={(event) => setComposerText(event.target.value)}
-                              onFocus={() => setComposerFocused(true)}
-                              onBlur={() => setComposerFocused(false)}
-                            />
-                            <label className="_feed_textarea_label">Write something ...</label>
-                          </div>
+                        <div className="form-floating _feed_inner_text_area_box_form w-100">
+                          <textarea
+                            className="form-control _textarea _feed_composer_textarea"
+                            placeholder="Write something ..."
+                            value={composerText}
+                            onChange={(event) => setComposerText(event.target.value)}
+                          />
+                          <label className="_feed_textarea_label">Write something ...</label>
                         </div>
                       </div>
-                      {composerFocused ? (
-                        <div className="_feed_composer_hint">
-                          Rich text tools are ready. Format selected text and add multiple images before posting.
-                        </div>
-                      ) : null}
                       <div className="_feed_inner_text_area_bottom">
                         <div className="_feed_inner_text_area_item">
                           <button
