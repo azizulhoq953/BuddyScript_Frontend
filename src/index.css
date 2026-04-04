@@ -2,6 +2,28 @@
   min-height: 100vh;
 }
 
+@media (min-width: 992px) {
+  ._social_registration_wrapper {
+    min-height: 100vh;
+    padding: 24px 0;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  ._social_registration_wrapper ._social_registration_wrap {
+    width: 100%;
+  }
+
+  ._social_registration_wrapper ._social_registration_content {
+    padding: 36px;
+  }
+
+  ._social_registration_wrapper ._social_registration_form_btn._mar_b60 {
+    margin-bottom: 24px !important;
+  }
+}
+
 ._feed_top_navbar {
   border-bottom: 1px solid #e9eef5;
   background: #ffffff;
