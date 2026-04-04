@@ -295,7 +295,12 @@ I agree to terms &amp; conditions
 <div className="row">
 <div className="col-lg-12 col-md-12 col-xl-12 col-sm-12">
 <div className="_social_registration_form_btn _mar_t40 _mar_b60">
-<button type="submit" className="_social_registration_form_btn_link _btn1" disabled={loading}>
+<button
+type="submit"
+className="_social_registration_form_btn_link _btn1"
+style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+disabled={loading}
+>
 {loading ? 'Please wait...' : needsVerification ? 'Verify Email' : 'Create Account'}
 </button>
 </div>

@@ -350,6 +350,15 @@ export function FeedPage() {
                       <div className="_feed_inner_text_area_box">
                         <div className="_feed_inner_text_area_box_image">
                           <img src="/assets/images/txt_img.png" alt="Profile" className="_txt_img" />
+                          <select
+                            className="_feed_visibility_select"
+                            value={visibility}
+                            onChange={(event) => setVisibility(event.target.value as Visibility)}
+                            aria-label="Visibility"
+                          >
+                            <option value="PUBLIC">Public</option>
+                            <option value="PRIVATE">Private</option>
+                          </select>
                         </div>
                         <div className="form-floating _feed_inner_text_area_box_form w-100">
                           <textarea
@@ -382,21 +391,6 @@ export function FeedPage() {
                           <button type="button" className="_feed_common _feed_inner_text_area_bottom_photo_link">
                             <span className="_mar_img">Article</span>
                           </button>
-
-                          <div className="_feed_post_type_wrap">
-                            <label htmlFor="post-visibility" className="_feed_post_type_label">
-                              Post Type
-                            </label>
-                            <select
-                              id="post-visibility"
-                              className="_feed_post_type_select"
-                              value={visibility}
-                              onChange={(event) => setVisibility(event.target.value as Visibility)}
-                            >
-                              <option value="PUBLIC">Public</option>
-                              <option value="PRIVATE">Private</option>
-                            </select>
-                          </div>
                         </div>
 
                         <button
